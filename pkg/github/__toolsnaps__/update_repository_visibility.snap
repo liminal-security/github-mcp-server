@@ -1,0 +1,30 @@
+{
+  "annotations": {
+    "title": "Change repository visibility",
+    "readOnlyHint": false
+  },
+  "description": "Change the visibility of a GitHub repository (from private to public or vice versa)",
+  "inputSchema": {
+    "properties": {
+      "owner": {
+        "description": "Repository owner (username or organization)",
+        "type": "string"
+      },
+      "repo": {
+        "description": "Repository name",
+        "type": "string"
+      },
+      "visibility": {
+        "description": "New visibility setting: 'public', 'private', or 'internal' (if organization supports it)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "owner",
+      "repo",
+      "visibility"
+    ],
+    "type": "object"
+  },
+  "name": "update_repository_visibility"
+}

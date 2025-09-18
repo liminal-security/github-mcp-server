@@ -1911,3 +1911,94 @@ func UnstarRepository(getClient GetClientFn, t translations.TranslationHelperFun
 			return mcp.NewToolResultText(fmt.Sprintf("Successfully unstarred repository %s/%s", owner, repo)), nil
 		}
 }
+
+func UpdateRepositoryVisibility(getClient GetClientFn, t translations.TranslationHelperFunc) (tool mcp.Tool, handler server.ToolHandlerFunc) {
+	return mcp.NewTool("update_repository_visibility",
+			mcp.WithDescription(t("TOOL_UPDATE_REPOSITORY_VISIBILITY_DESCRIPTION", "Change the visibility of a GitHub repository (from private to public or vice versa)")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{
+				Title:        t("TOOL_UPDATE_REPOSITORY_VISIBILITY_USER_TITLE", "Change repository visibility"),
+				ReadOnlyHint: ToBoolPtr(false),
+			}),
+			mcp.WithString("owner",
+				mcp.Required(),
+				mcp.Description("Repository owner (username or organization)"),
+			),
+			mcp.WithString("repo",
+				mcp.Required(),
+				mcp.Description("Repository name"),
+			),
+			mcp.WithString("visibility",
+				mcp.Required(),
+				mcp.Description("New visibility setting: 'public', 'private', or 'internal' (if organization supports it)"),
+			),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			owner, err := RequiredParam[string](request, "owner")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			repo, err := RequiredParam[string](request, "repo")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			visibility, err := RequiredParam[string](request, "visibility")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+
+			// Validate visibility parameter
+			validVisibilities := []string{"public", "private", "internal"}
+			isValid := false
+			for _, valid := range validVisibilities {
+				if visibility == valid {
+					isValid = true
+					break
+				}
+			}
+			if !isValid {
+				return mcp.NewToolResultError(fmt.Sprintf("Invalid visibility '%s'. Must be one of: %s", visibility, strings.Join(validVisibilities, ", "))), nil
+			}
+
+			client, err := getClient(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+			}
+
+			// Create repository update request
+			repoUpdate := &github.Repository{
+				Visibility: github.Ptr(visibility),
+			}
+
+			// Update the repository
+			updatedRepo, resp, err := client.Repositories.Edit(ctx, owner, repo, repoUpdate)
+			if err != nil {
+				return ghErrors.NewGitHubAPIErrorResponse(ctx,
+					"failed to update repository visibility",
+					resp,
+					err,
+				), nil
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != http.StatusOK {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read response body: %w", err)
+				}
+				return mcp.NewToolResultError(fmt.Sprintf("failed to update repository visibility: %s", string(body))), nil
+			}
+
+			// Return minimal response with essential information
+			minimalResponse := MinimalResponse{
+				ID:  fmt.Sprintf("%d", updatedRepo.GetID()),
+				URL: updatedRepo.GetHTMLURL(),
+			}
+
+			r, err := json.Marshal(minimalResponse)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal response: %w", err)
+			}
+
+			return mcp.NewToolResultText(fmt.Sprintf("Successfully changed repository %s/%s visibility to %s\n%s", owner, repo, visibility, string(r))), nil
+		}
+}

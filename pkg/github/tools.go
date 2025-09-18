@@ -45,6 +45,7 @@ func DefaultToolsetGroup(readOnly bool, getClient GetClientFn, getGQLClient GetG
 			toolsets.NewServerTool(DeleteFile(getClient, t)),
 			toolsets.NewServerTool(StarRepository(getClient, t)),
 			toolsets.NewServerTool(UnstarRepository(getClient, t)),
+			toolsets.NewServerTool(UpdateRepositoryVisibility(getClient, t)),
 		).
 		AddResourceTemplates(
 			toolsets.NewServerResourceTemplate(GetRepositoryResourceContent(getClient, getRawClient, t)),

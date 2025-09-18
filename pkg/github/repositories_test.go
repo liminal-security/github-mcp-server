@@ -3192,3 +3192,190 @@ func Test_UnstarRepository(t *testing.T) {
 		})
 	}
 }
+
+func Test_UpdateRepositoryVisibility(t *testing.T) {
+	// Verify tool definition once
+	mockClient := github.NewClient(nil)
+	tool, _ := UpdateRepositoryVisibility(stubGetClientFn(mockClient), translations.NullTranslationHelper)
+	require.NoError(t, toolsnaps.Test(tool.Name, tool))
+
+	assert.Equal(t, "update_repository_visibility", tool.Name)
+	assert.NotEmpty(t, tool.Description)
+	assert.Contains(t, tool.InputSchema.Properties, "owner")
+	assert.Contains(t, tool.InputSchema.Properties, "repo")
+	assert.Contains(t, tool.InputSchema.Properties, "visibility")
+	assert.ElementsMatch(t, tool.InputSchema.Required, []string{"owner", "repo", "visibility"})
+
+	// Setup mock repository response
+	mockRepo := &github.Repository{
+		ID:          github.Ptr(int64(12345)),
+		Name:        github.Ptr("test-repo"),
+		Visibility:  github.Ptr("public"),
+		HTMLURL:     github.Ptr("https://github.com/testuser/test-repo"),
+		Owner: &github.User{
+			Login: github.Ptr("testuser"),
+		},
+	}
+
+	tests := []struct {
+		name           string
+		mockedClient   *http.Client
+		requestArgs    map[string]interface{}
+		expectError    bool
+		expectedRepo   *github.Repository
+		expectedErrMsg string
+	}{
+		{
+			name: "successful visibility change to public",
+			mockedClient: mock.NewMockedHTTPClient(
+				mock.WithRequestMatchHandler(
+					mock.EndpointPattern{
+						Pattern: "/repos/testuser/test-repo",
+						Method:  "PATCH",
+					},
+					expectRequestBody(t, map[string]interface{}{
+						"visibility": "public",
+					}).andThen(
+						mockResponse(t, http.StatusOK, mockRepo),
+					),
+				),
+			),
+			requestArgs: map[string]interface{}{
+				"owner":      "testuser",
+				"repo":       "test-repo",
+				"visibility": "public",
+			},
+			expectError:  false,
+			expectedRepo: mockRepo,
+		},
+		{
+			name: "successful visibility change to private",
+			mockedClient: mock.NewMockedHTTPClient(
+				mock.WithRequestMatchHandler(
+					mock.EndpointPattern{
+						Pattern: "/repos/testuser/test-repo",
+						Method:  "PATCH",
+					},
+					expectRequestBody(t, map[string]interface{}{
+						"visibility": "private",
+					}).andThen(
+						mockResponse(t, http.StatusOK, &github.Repository{
+							ID:         github.Ptr(int64(12345)),
+							Name:       github.Ptr("test-repo"),
+							Visibility: github.Ptr("private"),
+							HTMLURL:    github.Ptr("https://github.com/testuser/test-repo"),
+							Owner: &github.User{
+								Login: github.Ptr("testuser"),
+							},
+						}),
+					),
+				),
+			),
+			requestArgs: map[string]interface{}{
+				"owner":      "testuser",
+				"repo":       "test-repo",
+				"visibility": "private",
+			},
+			expectError: false,
+		},
+		{
+			name: "successful visibility change to internal",
+			mockedClient: mock.NewMockedHTTPClient(
+				mock.WithRequestMatchHandler(
+					mock.EndpointPattern{
+						Pattern: "/repos/testuser/test-repo",
+						Method:  "PATCH",
+					},
+					expectRequestBody(t, map[string]interface{}{
+						"visibility": "internal",
+					}).andThen(
+						mockResponse(t, http.StatusOK, &github.Repository{
+							ID:         github.Ptr(int64(12345)),
+							Name:       github.Ptr("test-repo"),
+							Visibility: github.Ptr("internal"),
+							HTMLURL:    github.Ptr("https://github.com/testuser/test-repo"),
+							Owner: &github.User{
+								Login: github.Ptr("testuser"),
+							},
+						}),
+					),
+				),
+			),
+			requestArgs: map[string]interface{}{
+				"owner":      "testuser",
+				"repo":       "test-repo",
+				"visibility": "internal",
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid visibility parameter",
+			mockedClient: mock.NewMockedHTTPClient(),
+			requestArgs: map[string]interface{}{
+				"owner":      "testuser",
+				"repo":       "test-repo",
+				"visibility": "invalid",
+			},
+			expectError:    true,
+			expectedErrMsg: "Invalid visibility 'invalid'. Must be one of: public, private, internal",
+		},
+		{
+			name: "missing required parameters",
+			mockedClient: mock.NewMockedHTTPClient(),
+			requestArgs: map[string]interface{}{
+				"owner": "testuser",
+				// missing repo and visibility
+			},
+			expectError:    true,
+			expectedErrMsg: "missing required parameter: repo",
+		},
+		{
+			name: "API error response",
+			mockedClient: mock.NewMockedHTTPClient(
+				mock.WithRequestMatchHandler(
+					mock.EndpointPattern{
+						Pattern: "/repos/testuser/test-repo",
+						Method:  "PATCH",
+					},
+					http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						w.WriteHeader(http.StatusForbidden)
+						_, _ = w.Write([]byte(`{"message": "Repository visibility change is not allowed"}`))
+					}),
+				),
+			),
+			requestArgs: map[string]interface{}{
+				"owner":      "testuser",
+				"repo":       "test-repo",
+				"visibility": "public",
+			},
+			expectError:    true,
+			expectedErrMsg: "failed to update repository visibility",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := github.NewClient(tc.mockedClient)
+			_, handler := UpdateRepositoryVisibility(stubGetClientFn(client), translations.NullTranslationHelper)
+
+			request := createMCPRequest(tc.requestArgs)
+
+			result, err := handler(context.Background(), request)
+
+			if tc.expectError {
+				require.NoError(t, err)
+				require.True(t, result.IsError)
+				errorContent := getErrorResult(t, result)
+				assert.Contains(t, errorContent.Text, tc.expectedErrMsg)
+			} else {
+				require.NoError(t, err)
+				require.False(t, result.IsError)
+
+				// Parse the result and get the text content
+				textContent := getTextResult(t, result)
+				assert.Contains(t, textContent.Text, "Successfully changed repository")
+				assert.Contains(t, textContent.Text, tc.requestArgs["visibility"].(string))
+			}
+		})
+	}
+}

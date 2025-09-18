@@ -1999,6 +1999,6 @@ func UpdateRepositoryVisibility(getClient GetClientFn, t translations.Translatio
 				return nil, fmt.Errorf("failed to marshal response: %w", err)
 			}
 
-			return mcp.NewToolResultText(fmt.Sprintf("Successfully changed repository %s/%s visibility to %s\n%s", owner, repo, visibility, string(r))), nil
+			return mcp.NewToolResultText(string(r)), nil
 		}
 }

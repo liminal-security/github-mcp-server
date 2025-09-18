@@ -3373,8 +3373,17 @@ func Test_UpdateRepositoryVisibility(t *testing.T) {
 
 				// Parse the result and get the text content
 				textContent := getTextResult(t, result)
-				assert.Contains(t, textContent.Text, "Successfully changed repository")
-				assert.Contains(t, textContent.Text, tc.requestArgs["visibility"].(string))
+				
+				// Verify the response contains the expected JSON structure
+				var response map[string]interface{}
+				err := json.Unmarshal([]byte(textContent.Text), &response)
+				require.NoError(t, err, "Response should be valid JSON")
+				
+				// Check that the response contains the expected fields
+				assert.Contains(t, response, "id")
+				assert.Contains(t, response, "url")
+				assert.NotEmpty(t, response["id"])
+				assert.NotEmpty(t, response["url"])
 			}
 		})
 	}
